@@ -1,0 +1,9 @@
+# Mirror of pyproject.toml dependencies, for pip users.
+# Preferred workflow is uv (see README).
+fastapi>=0.115
+uvicorn[standard]>=0.30
+openai>=1.40
+pinecone>=5.0
+python-dotenv>=1.0
+slowapi>=0.1.9
+pydantic>=2.7
