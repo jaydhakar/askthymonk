@@ -52,7 +52,9 @@
       ]
     ],
     "extra": {
-      "eas": {}
+      "eas": {
+        "projectId": "9b462fd8-c066-44dc-9e4e-57ad750b3a41"
+      }
     },
     "owner": "jaydhakar"
   }
