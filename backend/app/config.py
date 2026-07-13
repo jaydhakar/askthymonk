@@ -65,6 +65,9 @@ class Settings:
         self.cors_origins = _parse_origins(os.getenv("CORS_ORIGINS", "*"))
         self.rate_limit = os.getenv("RATE_LIMIT", "20/minute")
         self.top_k = int(os.getenv("TOP_K", "3"))
+        # Optional shared secret. When set, /api/wisdom requires a matching
+        # X-API-Key header. Empty (default) disables the check for local dev.
+        self.api_shared_secret = os.getenv("API_SHARED_SECRET", "")
 
 
 @lru_cache

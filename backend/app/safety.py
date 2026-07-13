@@ -46,6 +46,8 @@ CRISIS_KEYWORDS: list[str] = [
     "marna chahti",
     "mar jaunga",
     "mar jaana chahta",
+    "mujhe marna",
+    "mujhe mar jana",
     "jeena nahi chahta",
     "jeena nahi chahti",
     "zindagi khatm",
@@ -60,6 +62,10 @@ CRISIS_KEYWORDS: list[str] = [
     "मर जाना चाहता",
     "मर जाऊं",
     "मर जाऊँ",
+    "मुझे मरना",  # first-person "I ... die" (avoids impersonal "सबको मरना है")
+    "मुझे मर जा",
+    "मुझे नहीं जीना",
+    "मुझे जीना नहीं",
     "जीना नहीं चाहता",
     "जीना नहीं चाहती",
     "जीना नहीं चाहत",  # catches चाहता/चाहती/चाहते variants

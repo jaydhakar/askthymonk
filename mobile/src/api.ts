@@ -5,7 +5,7 @@
  * hardcoded here.
  */
 
-import { API_BASE_URL } from "./config";
+import { API_BASE_URL, API_KEY } from "./config";
 
 export type LanguageInfo = {
   code: string;
@@ -40,6 +40,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = DEFAULT_
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        ...(API_KEY ? { "X-API-Key": API_KEY } : {}),
         ...(init?.headers ?? {}),
       },
     });

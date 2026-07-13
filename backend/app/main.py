@@ -90,6 +90,11 @@ def languages() -> LanguagesResponse:
 @app.post("/api/wisdom", response_model=WisdomResponse)
 @limiter.limit(settings.rate_limit)
 def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
+    # Optional shared-secret gate. When API_SHARED_SECRET is configured, callers
+    # must present a matching X-API-Key header. Disabled when unset (local dev).
+    if settings.api_shared_secret and request.headers.get("x-api-key") != settings.api_shared_secret:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key.")
+
     language = payload.language or DEFAULT_LANGUAGE
     if not is_supported(language):
         # Unknown/unsupported language: fall back to the default rather than error.

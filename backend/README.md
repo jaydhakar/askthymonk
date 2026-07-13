@@ -145,6 +145,25 @@ This path never touches OpenAI or Pinecone, so it works even without API keys.
 | `CORS_ORIGINS` | `*` | Allowed CORS origins |
 | `RATE_LIMIT` | `20/minute` | Per-IP limit on `/api/wisdom` |
 | `TOP_K` | `3` | Chunks retrieved per query |
+| `API_SHARED_SECRET` | *(empty)* | If set, `/api/wisdom` requires a matching `X-API-Key` header |
+
+## Tests
+
+```bash
+uv run pytest
+```
+
+Covers the crisis/distress matcher (both languages, transliteration, nukta
+spelling variants, and the exact phrase that once slipped through) plus the
+crisis routing and the `X-API-Key` gate — all offline, no API keys needed.
+
+## Optional: shared-secret gate
+
+Set `API_SHARED_SECRET` (and the matching `EXPO_PUBLIC_API_KEY` in `mobile/.env`)
+to require an `X-API-Key` header on `/api/wisdom`. Empty by default (open, for
+local dev). This deters casual direct hits on a deployed URL, but note that a
+secret shipped inside a public mobile app is extractable — it is not a
+substitute for real authentication.
 
 ## How language maps to Pinecone
 
