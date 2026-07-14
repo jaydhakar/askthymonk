@@ -11,8 +11,8 @@ type Props = {
 
 /**
  * Segmented pill control populated entirely from the backend's /api/languages.
- * Today only "Hindi" comes back, so a single pill renders; adding English later
- * requires no client change.
+ * Renders one pill per language the backend reports (Hindi and English today);
+ * adding more languages requires no client change.
  */
 export function LanguageToggle({ languages, selected, onSelect }: Props) {
   if (languages.length === 0) return null;
