@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..config import FALLBACK_ANSWER, get_settings, language_label
+from ..config import NO_ANSWER_SENTINEL, get_settings, language_label
 from .embeddings import _client  # reuse the same authenticated OpenAI client
 
 _SYSTEM_PROMPT = """You are the voice of the indexed Osho talks — a meditation \
@@ -31,7 +31,7 @@ naturally when spoken.
 - Speak the insight directly. Never mention "passages", "chunks", "context", \
 "retrieval", or that you are working from provided text.
 - If the retrieved passages do not actually address the question, reply with \
-exactly this sentence and nothing else: "{fallback}\""""
+exactly this token and nothing else (do NOT translate or rephrase it): {sentinel}"""
 
 
 def generate_answer(
@@ -46,7 +46,7 @@ def generate_answer(
     context = "\n\n".join(
         f"[Book: {c.get('book', '')}]\n{c.get('text', '')}".strip() for c in chunks
     )
-    system_prompt = _SYSTEM_PROMPT.format(language_name=language_name, fallback=FALLBACK_ANSWER)
+    system_prompt = _SYSTEM_PROMPT.format(language_name=language_name, sentinel=NO_ANSWER_SENTINEL)
     user_content = f"Question: {question}\n\nRetrieved passages:\n{context}"
 
     messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]

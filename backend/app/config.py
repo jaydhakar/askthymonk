@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 
@@ -15,10 +16,20 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# The exact sentence the LLM (or the no-match path) must return when nothing
-# relevant was retrieved. Kept as a constant so retrieval, the prompt, and the
-# book-citation logic all agree on the same string.
+# The English decline message. Also the default for unknown languages.
 FALLBACK_ANSWER = "I have not spoken on this specific matter in the indexed literature."
+
+# When the model cannot ground an answer it emits this fixed, language-independent
+# sentinel — NOT the fallback sentence itself, which it would otherwise translate
+# into the answer's language and defeat exact-match detection.
+NO_ANSWER_SENTINEL = "NO_ANSWER"
+
+# Localized decline messages, shown when retrieval finds nothing usable or the
+# model emits the sentinel. Add a language's entry when it ships.
+FALLBACK_MESSAGES: dict[str, str] = {
+    "en": FALLBACK_ANSWER,
+    "hi": "मैंने अनुक्रमित साहित्य में इस विशेष विषय पर कुछ नहीं कहा है।",
+}
 
 # language code -> human label the mobile app can render in the toggle.
 LANGUAGE_LABELS: dict[str, str] = {"hi": "Hindi", "en": "English"}
@@ -135,3 +146,14 @@ def retrieval_target(language: str) -> RetrievalTarget:
 
 def language_label(code: str) -> str:
     return LANGUAGE_LABELS.get(code, code)
+
+
+def fallback_message(language: str) -> str:
+    """The decline message in the given language (English if unknown)."""
+    return FALLBACK_MESSAGES.get(language, FALLBACK_ANSWER)
+
+
+def is_no_answer(text: str) -> bool:
+    """True if the model's answer is the decline sentinel (robust to case,
+    punctuation, and spacing, e.g. "NO_ANSWER", "no answer.", "No-Answer")."""
+    return "NOANSWER" in re.sub(r"[^A-Za-z]", "", text).upper()

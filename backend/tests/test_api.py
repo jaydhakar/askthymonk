@@ -4,13 +4,24 @@ The crisis path and the shared-secret gate both short-circuit before any
 embedding or Pinecone/OpenAI call, so these tests need no API keys.
 """
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app.config import fallback_message
 
 client = TestClient(main.app)
 
 CRISIS_QUESTION = "मैं अपनी ज़िंदगी खत्म करना चाहता हूँ"
+
+
+def _stub_retrieval(monkeypatch):
+    """Bypass real embedding/Pinecone so the decline-handling tests stay offline."""
+    monkeypatch.setattr(main.settings, "api_shared_secret", "")
+    monkeypatch.setattr(main, "embed_question", lambda text, model: [0.0, 0.1])
+    monkeypatch.setattr(
+        main, "query_index", lambda api_key, index, vec, k: [{"score": 0.5, "book": "Some Book", "text": "..."}]
+    )
 
 
 def test_health() -> None:
@@ -59,6 +70,28 @@ def test_crisis_detected_across_conversation_history(monkeypatch) -> None:
     body_out = res.json()
     assert body_out["book"] is None
     assert "1800-599-0019" in body_out["answer"]  # routed to crisis resources
+
+
+@pytest.mark.parametrize("language", ["hi", "en"])
+def test_sentinel_maps_to_localized_fallback_and_nulls_book(monkeypatch, language) -> None:
+    # The model "declines" by emitting the sentinel; even a translated/decorated
+    # form must map to the localized fallback and null the book.
+    _stub_retrieval(monkeypatch)
+    monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "NO_ANSWER")
+    res = client.post("/api/wisdom", json={"question": "something off-topic", "language": language})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["book"] is None
+    assert body["answer"] == fallback_message(language)
+
+
+def test_real_answer_keeps_its_book(monkeypatch) -> None:
+    _stub_retrieval(monkeypatch)
+    monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "A real grounded reflection.")
+    res = client.post("/api/wisdom", json={"question": "what is meditation?", "language": "en"})
+    body = res.json()
+    assert body["answer"] == "A real grounded reflection."
+    assert body["book"] == "Some Book"
 
 
 def test_secret_gate_rejects_without_header(monkeypatch) -> None:

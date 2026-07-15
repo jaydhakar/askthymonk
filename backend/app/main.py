@@ -18,9 +18,10 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .config import (
-    FALLBACK_ANSWER,
     DEFAULT_LANGUAGE,
+    fallback_message,
     get_settings,
+    is_no_answer,
     is_supported,
     language_label,
     retrieval_target,
@@ -139,9 +140,9 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
         logger.exception("Upstream retrieval/embedding failure")
         raise HTTPException(status_code=502, detail="Upstream service error during retrieval.") from exc
 
-    # Graceful fallback when nothing relevant is retrieved.
+    # Graceful decline when nothing relevant is retrieved (localized, no book).
     if not matches:
-        return WisdomResponse(answer=FALLBACK_ANSWER, book=None, language=language)
+        return WisdomResponse(answer=fallback_message(language), book=None, language=language)
 
     try:
         # Step 4: ground an answer in the retrieved passages (with prior turns
@@ -151,9 +152,10 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
         logger.exception("Upstream LLM failure")
         raise HTTPException(status_code=502, detail="Upstream service error during generation.") from exc
 
-    # Cite the top match's book, unless the model reported nothing relevant.
-    book = matches[0].get("book") or None
-    if answer.strip() == FALLBACK_ANSWER:
-        book = None
+    # A sentinel answer means the model declined: return the localized decline
+    # message and never cite a book (the sentinel is language-independent, so
+    # this detection works regardless of the answer language).
+    if is_no_answer(answer):
+        return WisdomResponse(answer=fallback_message(language), book=None, language=language)
 
-    return WisdomResponse(answer=answer, book=book, language=language)
+    return WisdomResponse(answer=answer, book=matches[0].get("book") or None, language=language)
