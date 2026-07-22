@@ -12,6 +12,8 @@ type Options = {
   onTranscript: (text: string) => void;
   /** Called with a human-readable message on failure or denied permission. */
   onError?: (message: string) => void;
+  /** Localized message shown when permission is denied. */
+  permissionMessage?: string;
 };
 
 /**
@@ -23,15 +25,17 @@ type Options = {
  * Note: this relies on a native module and therefore only works in a custom
  * dev-client build (or a store build), not in Expo Go.
  */
-export function useSpeechToText({ lang, onTranscript, onError }: Options) {
+export function useSpeechToText({ lang, onTranscript, onError, permissionMessage }: Options) {
   const [listening, setListening] = useState(false);
 
   // Keep callbacks in refs so the native event listeners always see the latest.
   const onTranscriptRef = useRef(onTranscript);
   const onErrorRef = useRef(onError);
+  const permissionMessageRef = useRef(permissionMessage);
   useEffect(() => {
     onTranscriptRef.current = onTranscript;
     onErrorRef.current = onError;
+    permissionMessageRef.current = permissionMessage;
   });
 
   useSpeechRecognitionEvent("start", () => setListening(true));
@@ -53,7 +57,8 @@ export function useSpeechToText({ lang, onTranscript, onError }: Options) {
       const permission = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!permission.granted) {
         onErrorRef.current?.(
-          "Microphone and speech-recognition permission are needed for voice input."
+          permissionMessageRef.current ??
+            "Microphone and speech-recognition permission are needed for voice input."
         );
         return;
       }

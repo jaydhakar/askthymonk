@@ -20,6 +20,8 @@ import { MessageList } from "./src/components/MessageList";
 import { Welcome } from "./src/components/Welcome";
 import { API_BASE_URL } from "./src/config";
 import { makeId, messagesToHistory } from "./src/format";
+import { strings } from "./src/i18n";
+import { resolveInitialLanguage, storeLanguage } from "./src/preferences";
 import { colors, spacing } from "./src/theme";
 import type { Message } from "./src/types";
 import { sttLocale } from "./src/voice/locales";
@@ -46,14 +48,28 @@ export default function App() {
   useEffect(() => {
     let mounted = true;
     (async () => {
+      // Resolve the language preference alongside the languages fetch so the
+      // locale/storage check never gates startup on its own. Timed so we can
+      // report its real cost on-device.
+      const t0 = Date.now();
+      const preference = resolveInitialLanguage().then((code) => {
+        console.log(`[startup] language preference resolved in ${Date.now() - t0}ms -> ${code}`);
+        return code;
+      });
+
       try {
-        const langs = await fetchLanguages();
+        const [langs, pref] = await Promise.all([fetchLanguages(), preference]);
         if (!mounted) return;
         setLanguages(langs);
-        setSelected((prev) => prev || langs[0]?.code || "hi");
+        // The stored/detected preference wins; fall back to the first language
+        // the backend actually offers if it isn't available.
+        const available = langs.map((l) => l.code);
+        setSelected(available.includes(pref) ? pref : langs[0]?.code || pref);
       } catch (e) {
         if (!mounted) return;
         setLoadError(e instanceof Error ? e.message : "Failed to load languages.");
+        // Still honor the preference so the error screen renders in-language.
+        preference.then((pref) => mounted && setSelected((prev) => prev || pref));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -61,6 +77,13 @@ export default function App() {
     return () => {
       mounted = false;
     };
+  }, []);
+
+  // Persist the user's toggle choice so it survives restarts and is never
+  // re-overridden by system-locale detection.
+  const handleSelectLanguage = useCallback((code: string) => {
+    setSelected(code);
+    void storeLanguage(code);
   }, []);
 
   // Stop any speech when the app is torn down.
@@ -100,10 +123,13 @@ export default function App() {
     setInput("");
   }, []);
 
+  const s = strings(selected);
+
   const { listening, toggle: toggleMic } = useSpeechToText({
     lang: sttLocale(selected),
     onTranscript: setInput,
-    onError: (message) => Alert.alert("Voice input", message),
+    onError: (message) => Alert.alert(s.voiceAlertTitle, message),
+    permissionMessage: s.micPermission,
   });
 
   return (
@@ -111,19 +137,19 @@ export default function App() {
       <Header
         languages={languages}
         selected={selected}
-        onSelect={setSelected}
+        onSelect={handleSelectLanguage}
         onMenuPress={() => setDrawerOpen(true)}
       />
 
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.gold} />
-          <Text style={styles.muted}>Loading…</Text>
+          <Text style={styles.muted}>{s.loading}</Text>
         </View>
       ) : loadError ? (
         <View style={styles.center}>
-          <Text style={styles.errorTitle}>Couldn’t reach the backend</Text>
-          <Text style={styles.muted}>{loadError}</Text>
+          <Text style={styles.errorTitle}>{s.errorTitle}</Text>
+          <Text style={styles.muted}>{s.errorBody}</Text>
           <Text style={styles.url}>{API_BASE_URL}</Text>
         </View>
       ) : (
@@ -132,9 +158,9 @@ export default function App() {
           behavior={Platform.OS === "ios" ? "padding" : undefined}
         >
           {messages.length === 0 ? (
-            <Welcome onSelectSuggestion={setInput} />
+            <Welcome onSelectSuggestion={setInput} language={selected} />
           ) : (
-            <MessageList messages={messages} sending={sending} />
+            <MessageList messages={messages} sending={sending} language={selected} />
           )}
           <ChatInput
             value={input}
@@ -143,6 +169,7 @@ export default function App() {
             onMicPress={toggleMic}
             listening={listening}
             sending={sending}
+            placeholder={s.inputPlaceholder}
           />
         </KeyboardAvoidingView>
       )}
@@ -151,6 +178,7 @@ export default function App() {
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
         onNewConversation={handleNewConversation}
+        language={selected}
       />
 
       <StatusBar style="light" />

@@ -1,10 +1,11 @@
 import { StyleSheet, Text, View } from "react-native";
 
 import { formatBookTitle } from "../format";
+import { localizedSource } from "../i18n";
 import { colors, radius, spacing } from "../theme";
 import type { Message } from "../types";
 
-export function MessageBubble({ message }: { message: Message }) {
+export function MessageBubble({ message, language }: { message: Message; language: string }) {
   const isUser = message.role === "user";
 
   return (
@@ -20,7 +21,8 @@ export function MessageBubble({ message }: { message: Message }) {
         <Text style={[styles.text, message.error && styles.errorText]}>{message.text}</Text>
         {!isUser && !message.error && message.book ? (
           <Text style={styles.book}>
-            — {message.source ? `${message.source} · ` : ""}
+            {/* Source name localizes; book titles deliberately do NOT. */}
+            — {message.source ? `${localizedSource(language, message.source)} · ` : ""}
             {formatBookTitle(message.book)}
           </Text>
         ) : null}

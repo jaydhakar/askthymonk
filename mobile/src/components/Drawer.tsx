@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Animated, Dimensions, Pressable, StyleSheet, Text, View } from "react-native";
 
+import { strings } from "../i18n";
 import { colors, fonts, radius, spacing } from "../theme";
 
 const DRAWER_W = Math.min(320, Math.round(Dimensions.get("window").width * 0.82));
@@ -9,6 +10,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onNewConversation: () => void;
+  language: string;
 };
 
 /**
@@ -16,7 +18,8 @@ type Props = {
  * purely by Animated (no Modal, no gesture/navigation native modules) so it runs
  * in the current dev client. When closed it slides off-screen and ignores touches.
  */
-export function Drawer({ open, onClose, onNewConversation }: Props) {
+export function Drawer({ open, onClose, onNewConversation, language }: Props) {
+  const s = strings(language);
   const [tx] = useState(() => new Animated.Value(-DRAWER_W));
   const [fade] = useState(() => new Animated.Value(0));
 
@@ -42,27 +45,19 @@ export function Drawer({ open, onClose, onNewConversation }: Props) {
       </Animated.View>
 
       <Animated.View style={[styles.panel, { transform: [{ translateX: tx }] }]}>
-        <Text style={styles.brand}>Ask Thy Monk</Text>
-        <Text style={styles.tagline}>Wisdom, whenever you need it</Text>
+        <Text style={styles.brand}>{s.appName}</Text>
+        <Text style={styles.tagline}>{s.drawerTagline}</Text>
 
         <View style={styles.rule} />
 
         <DrawerItem
-          label="New conversation"
+          label={s.drawerNewConversation}
           onPress={() => {
             onNewConversation();
             onClose();
           }}
         />
-        <DrawerItem
-          label="About"
-          onPress={() =>
-            Alert.alert(
-              "Ask Thy Monk",
-              "Ask a question and receive a short reflection drawn from the indexed talks. Available in Hindi and English, by text or voice."
-            )
-          }
-        />
+        <DrawerItem label={s.drawerAbout} onPress={() => Alert.alert(s.appName, s.aboutBody)} />
       </Animated.View>
     </View>
   );

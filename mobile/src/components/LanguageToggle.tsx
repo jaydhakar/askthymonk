@@ -1,6 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
 import type { LanguageInfo } from "../api";
+import { strings } from "../i18n";
 import { colors, radius, spacing } from "../theme";
 
 type Props = {
@@ -29,7 +30,11 @@ export function LanguageToggle({ languages, selected, onSelect }: Props) {
             accessibilityState={{ selected: active }}
             style={[styles.pill, active && styles.pillActive]}
           >
-            <Text style={[styles.label, active && styles.labelActive]}>{lang.label}</Text>
+            <Text style={[styles.label, active && styles.labelActive]}>
+              {/* Localized name when we know it; otherwise the backend's label
+                  (so future languages still render without a client change). */}
+              {strings(selected).languageLabels[lang.code] ?? lang.label}
+            </Text>
           </Pressable>
         );
       })}

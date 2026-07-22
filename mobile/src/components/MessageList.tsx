@@ -8,11 +8,12 @@ import { MessageBubble } from "./MessageBubble";
 type Props = {
   messages: Message[];
   sending: boolean;
+  language: string;
 };
 
 // The zero-message state is handled by the Welcome screen (see App). This list
 // renders only once a conversation is active.
-export function MessageList({ messages, sending }: Props) {
+export function MessageList({ messages, sending, language }: Props) {
   const listRef = useRef<FlatList<Message>>(null);
 
   const scrollToEnd = () => listRef.current?.scrollToEnd({ animated: true });
@@ -22,7 +23,7 @@ export function MessageList({ messages, sending }: Props) {
       ref={listRef}
       data={messages}
       keyExtractor={(m) => m.id}
-      renderItem={({ item }) => <MessageBubble message={item} />}
+      renderItem={({ item }) => <MessageBubble message={item} language={language} />}
       contentContainerStyle={styles.content}
       onContentSizeChange={scrollToEnd}
       onLayout={scrollToEnd}

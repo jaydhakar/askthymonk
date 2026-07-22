@@ -1,5 +1,6 @@
 import { Dimensions, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
+import { strings } from "../i18n";
 import { colors, fonts, radius, spacing } from "../theme";
 
 const HERO = require("../../assets/hero-monk.jpg");
@@ -10,11 +11,9 @@ const HERO_H = Math.round(SCREEN_H * 0.46);
 // halo + face show (rather than the center-crop RN "cover" would give).
 const IMG_H = Math.round(SCREEN_W * (1376 / 768));
 
-// Two short, on-topic example prompts. Tapping populates the input (no submit).
-const SUGGESTIONS = ["How do I quiet my mind?", "How do I let go of anger?"];
-
 type Props = {
   onSelectSuggestion: (text: string) => void;
+  language: string;
 };
 
 /** Decorative divider: thin gold line — diamond — thin gold line. */
@@ -28,7 +27,8 @@ function Divider() {
   );
 }
 
-export function Welcome({ onSelectSuggestion }: Props) {
+export function Welcome({ onSelectSuggestion, language }: Props) {
+  const s = strings(language);
   return (
     <ScrollView
       style={styles.scroll}
@@ -47,14 +47,14 @@ export function Welcome({ onSelectSuggestion }: Props) {
       </View>
 
       <View style={styles.body}>
-        <Text style={styles.name}>Ask Thy Monk</Text>
+        <Text style={styles.name}>{s.appName}</Text>
         <Divider />
 
-        <Text style={styles.greetingTop}>Peace, seeker.</Text>
-        <Text style={styles.greetingBottom}>What weighs on your mind today?</Text>
+        <Text style={styles.greetingTop}>{s.greetingTop}</Text>
+        <Text style={styles.greetingBottom}>{s.greetingBottom}</Text>
 
         <View style={styles.pills}>
-          {SUGGESTIONS.map((text) => (
+          {s.suggestions.map((text) => (
             <Pressable
               key={text}
               onPress={() => onSelectSuggestion(text)}
