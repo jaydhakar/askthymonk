@@ -169,6 +169,41 @@ local dev). This deters casual direct hits on a deployed URL, but note that a
 secret shipped inside a public mobile app is extractable — it is not a
 substitute for real authentication.
 
+## Deploying to Render (free tier)
+
+`render.yaml` at the **repo root** is a Render Blueprint for a free-tier Python
+web service (Singapore region). It:
+
+- runs from `backend/` (`rootDir`) and builds with `pip install -r requirements.txt`
+  — Render's Python buildpack expects `requirements.txt`, which mirrors the uv
+  runtime deps. Keep it in sync on dep changes (or regenerate:
+  `uv export --no-hashes -o requirements.txt`);
+- starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (binds Render's
+  injected `$PORT` — never a hardcoded port);
+- health-checks `/health`.
+
+**Deploy:** Render dashboard → **New + → Blueprint** → connect this repo. Render
+reads `render.yaml` and prompts for every env var (all declared `sync: false`, so
+no secrets are stored in the repo). Enter the values from the table above. For a
+public URL, **set `API_SHARED_SECRET`** and put the same value in the app's
+`EXPO_PUBLIC_API_KEY` — otherwise every `/api/wisdom` request returns `401`.
+
+**Verify the live service:**
+
+```bash
+curl https://<your-app>.onrender.com/health         # {"status":"ok"}
+curl https://<your-app>.onrender.com/api/languages   # hi + en
+# With the gate enabled, /api/wisdom without X-API-Key must reject:
+curl -s -o /dev/null -w "%{http_code}\n" -X POST \
+  https://<your-app>.onrender.com/api/wisdom \
+  -H "Content-Type: application/json" -d '{"question":"hi","language":"en"}'   # 401
+```
+
+**Free-tier note:** the instance spins down after ~15 min idle and cold-starts
+(~50s) on the next request — the first request after idle can exceed a short
+client timeout, then succeed on retry. Logging goes to stdout/stderr only (the
+free filesystem is ephemeral).
+
 ## How language maps to retrieval
 
 Hindi and English are stored in **two separate Pinecone accounts** — done to use

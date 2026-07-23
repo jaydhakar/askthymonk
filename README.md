@@ -65,6 +65,16 @@ The dev-client build step is called out separately during setup.
 | Where | Var | Purpose |
 |---|---|---|
 | `backend/.env` | `OPENAI_API_KEY`, `PINECONE_API_KEY`, `PINECONE_INDEX`, … | see backend README |
-| `mobile/.env` | `EXPO_PUBLIC_API_URL` | backend base URL as seen from the device |
+| `mobile/.env` | `EXPO_PUBLIC_API_URL` | backend base URL (LAN IP for local, or the deployed Render URL) |
+| `mobile/.env` | `EXPO_PUBLIC_API_KEY` | must match backend `API_SHARED_SECRET` when the gate is on |
 
 Secrets live only in `.env` files (gitignored); never commit real keys.
+
+## Deployment
+
+The backend deploys to **Render** (free tier) via the `render.yaml` Blueprint at
+the repo root — see the "Deploying to Render" section in
+[`backend/README.md`](backend/README.md) for the full flow (env vars, the
+shared-secret gate, and the free-tier cold-start behavior). Point the app at the
+deployed backend by setting `mobile/.env`'s `EXPO_PUBLIC_API_URL` to the Render
+URL (and `EXPO_PUBLIC_API_KEY` to match `API_SHARED_SECRET`), then re-bundle.
