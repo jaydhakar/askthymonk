@@ -16,6 +16,10 @@
     },
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://askthymonk-backend.onrender.com"
+      },
       "ios": {
         "simulator": false
       },
