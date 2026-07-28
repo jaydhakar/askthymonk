@@ -9,6 +9,8 @@ A RAG chat interface over a Pinecone index of ~90 Hindi Osho books. Endpoints:
 from __future__ import annotations
 
 import logging
+import os
+import sys
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -34,6 +36,29 @@ from .services.llm import generate_answer, reformulate_query
 from .services.pinecone_client import query_index
 
 logger = logging.getLogger("askthymonk")
+# Dedicated diagnostics logger so per-request retrieval/grounding lines are easy
+# to filter in Render's log stream (search for "askthymonk.diag").
+diag = logging.getLogger("askthymonk.diag")
+
+
+def _configure_app_logging() -> None:
+    """Guarantee our INFO diagnostics reach stdout (hence Render's logs),
+    independent of how uvicorn configured root logging. Scoped to the
+    'askthymonk' logger tree so uvicorn's own loggers are untouched. Level is
+    overridable via LOG_LEVEL (default INFO). Idempotent — safe on reload."""
+    level = getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO)
+    app_logger = logging.getLogger("askthymonk")
+    app_logger.setLevel(level)
+    if not any(getattr(h, "_atm_handler", False) for h in app_logger.handlers):
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        handler._atm_handler = True  # marker so we never attach a duplicate
+        app_logger.addHandler(handler)
+        # We emit through our own handler; don't also bubble to the root logger.
+        app_logger.propagate = False
+
+
+_configure_app_logging()
 
 settings = get_settings()
 
@@ -51,7 +76,10 @@ class UTF8JSONResponse(JSONResponse):
 
 app = FastAPI(
     title="Ask Thy Monk API",
-    version="1.0.0",
+    # 1.1.0: adds per-request diagnostics logging + Pinecone client-init validation
+    # (observability only; no retrieval/grounding behavior change). Also serves as
+    # a deploy-verification marker via /openapi.json.
+    version="1.1.0",
     default_response_class=UTF8JSONResponse,
 )
 app.state.limiter = limiter
@@ -119,6 +147,7 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
     # built up gradually across several messages is still caught.
     crisis_scan_text = " ".join([h["question"] for h in history] + [question])
     if is_crisis(crisis_scan_text):
+        diag.info("outcome=crisis lang=%s turn=%d", language, len(history) + 1)
         return WisdomResponse(answer=crisis_response(language), book=None, source=None, language=language)
 
     # Select the embedding model AND the Pinecone account/index as one matched
@@ -132,12 +161,18 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
     # Only the RETRIEVAL query changes; answer generation still gets the original
     # question + history below. Degrade gracefully to the original on failure.
     retrieval_query = question
+    # "skipped" must be the value on a first-turn / no-history request — i.e.
+    # reformulation is completely inert unless there is prior history. The log
+    # line below makes that verifiable per request rather than assumed.
+    reformulation = "skipped"
     if history:
         try:
             retrieval_query = reformulate_query(question, history)
+            reformulation = "changed" if retrieval_query != question else "unchanged"
         except Exception:  # noqa: BLE001 — never let the extra call break the request
             logger.warning("Query reformulation failed; retrieving on the original question.")
             retrieval_query = question
+            reformulation = "failed"
 
     try:
         # Step 1: embed the (reformulated) retrieval query with the language's model.
@@ -153,8 +188,25 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
         logger.exception("Upstream retrieval/embedding failure")
         raise HTTPException(status_code=502, detail="Upstream service error during retrieval.") from exc
 
+    # Diagnostics: the config ACTUALLY used this request (top_k/index/model read
+    # from the resolved target, not assumed), plus match count and raw scores and
+    # reformulation status. No question/answer text is logged (matches metrics.py).
+    scores = [round(m.get("score"), 4) for m in matches if m.get("score") is not None]
+    diag.info(
+        "retrieval lang=%s index=%s top_k=%d embed=%s turn=%d reformulation=%s matches=%d scores=%s",
+        language,
+        target.pinecone_index,
+        target.top_k,
+        target.embedding_model,
+        len(history) + 1,
+        reformulation,
+        len(matches),
+        scores,
+    )
+
     # Graceful decline when nothing relevant is retrieved (localized, no book).
     if not matches:
+        diag.info("outcome=decline_no_matches lang=%s top_k=%d", language, target.top_k)
         return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
 
     try:
@@ -165,13 +217,23 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
         logger.exception("Upstream LLM failure")
         raise HTTPException(status_code=502, detail="Upstream service error during generation.") from exc
 
+    top = matches[0]
+    top_score = round(top["score"], 4) if top.get("score") is not None else None
+
     # A sentinel answer means the model declined: return the localized decline
     # message and never cite a book (the sentinel is language-independent, so
     # this detection works regardless of the answer language).
     if is_no_answer(answer):
+        diag.info(
+            "outcome=decline_no_answer lang=%s matches=%d top_score=%s",
+            language, len(matches), top_score,
+        )
         return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
 
-    top = matches[0]
+    diag.info(
+        "outcome=grounded lang=%s book=%s matches=%d top_score=%s",
+        language, top.get("book") or None, len(matches), top_score,
+    )
     return WisdomResponse(
         answer=answer,
         book=top.get("book") or None,
