@@ -29,7 +29,9 @@ def _stub_retrieval(monkeypatch):
 def test_health() -> None:
     res = client.get("/health")
     assert res.status_code == 200
-    assert res.json() == {"status": "ok"}
+    body = res.json()
+    assert body["status"] == "ok"
+    assert body["version"] == main.app.version
 
 
 def test_languages_lists_hindi() -> None:
@@ -75,7 +77,8 @@ def test_crisis_detected_across_conversation_history(monkeypatch) -> None:
     assert "1800-599-0019" in body_out["answer"]  # routed to crisis resources
 
 
-def test_reformulated_query_is_used_for_retrieval_when_history(monkeypatch) -> None:
+def test_followup_is_reformulated_for_retrieval(monkeypatch) -> None:
+    # Classified as a follow-up -> retrieval embeds the rewritten standalone query.
     monkeypatch.setattr(main.settings, "api_shared_secret", "")
     captured = {}
 
@@ -84,7 +87,8 @@ def test_reformulated_query_is_used_for_retrieval_when_history(monkeypatch) -> N
         return [0.0, 0.1]
 
     monkeypatch.setattr(main, "embed_question", fake_embed)
-    monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "text": "t"}])
+    monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "source": "Osho", "text": "t"}])
+    monkeypatch.setattr(main, "is_followup", lambda q, h: True)
     monkeypatch.setattr(main, "reformulate_query", lambda q, h: "STANDALONE REWRITE")
     monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "an answer")
 
@@ -97,8 +101,40 @@ def test_reformulated_query_is_used_for_retrieval_when_history(monkeypatch) -> N
         },
     )
     assert res.status_code == 200
-    # Retrieval embedded the rewritten query, NOT the vague follow-up.
     assert captured["embed_text"] == "STANDALONE REWRITE"
+
+
+def test_new_question_with_history_is_not_reformulated(monkeypatch) -> None:
+    # Classified as NEW despite prior history -> retrieval uses the ORIGINAL
+    # question verbatim; reformulation is never called (no prior topic grafted on).
+    monkeypatch.setattr(main.settings, "api_shared_secret", "")
+    captured = {"reformulated": False}
+
+    def fake_embed(text, model):
+        captured["embed_text"] = text
+        return [0.0, 0.1]
+
+    def spy_reformulate(q, h):
+        captured["reformulated"] = True
+        return "SHOULD NOT BE USED"
+
+    monkeypatch.setattr(main, "embed_question", fake_embed)
+    monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "source": "Osho", "text": "t"}])
+    monkeypatch.setattr(main, "is_followup", lambda q, h: False)
+    monkeypatch.setattr(main, "reformulate_query", spy_reformulate)
+    monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "an answer")
+
+    res = client.post(
+        "/api/wisdom",
+        json={
+            "question": "what is meditation?",
+            "language": "en",
+            "conversation_history": [{"question": "what does osho say about money?", "answer": "..."}],
+        },
+    )
+    assert res.status_code == 200
+    assert captured["reformulated"] is False
+    assert captured["embed_text"] == "what is meditation?"
 
 
 def test_no_reformulation_on_first_message(monkeypatch) -> None:

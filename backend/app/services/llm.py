@@ -103,3 +103,41 @@ def reformulate_query(question: str, history: list[dict[str, str]]) -> str:
     )
     rewritten = (response.choices[0].message.content or "").strip()
     return rewritten or question
+
+
+_INTENT_SYSTEM = (
+    "You decide whether the user's latest question CONTINUES the recent "
+    "conversation's topic or introduces a NEW subject.\n"
+    "- FOLLOWUP: the SAME subject as the recent turns — clarifying it, narrowing "
+    "it, or referring back to it (e.g. 'what did you mean by that?', or pronouns "
+    "like it / this / that / इस / यह / उस pointing at the prior answer). A phrase "
+    "like 'what about ...' is FOLLOWUP only if it stays on the same subject.\n"
+    "- NEW: a different subject, even in the same session and even if phrased as "
+    "'what about ...'. If the core topic/subject differs from the prior turn, "
+    "it is NEW.\n"
+    "When unsure, answer NEW.\n"
+    "Answer with exactly one word: FOLLOWUP or NEW."
+)
+
+
+def is_followup(question: str, history: list[dict[str, str]]) -> bool:
+    """Classify whether the latest question continues the prior topic (follow-up)
+    or introduces a new subject. Deliberately biased to NEW when unsure. Cheap:
+    short prompt, one-word output, temp 0.
+    """
+    settings = get_settings()
+    recent = history[-2:]
+    convo = "\n".join(f"Q: {t['question']}\nA: {t['answer']}" for t in recent)
+
+    response = _client().chat.completions.create(
+        model=settings.chat_model,
+        temperature=0,
+        messages=[
+            {"role": "system", "content": _INTENT_SYSTEM},
+            {"role": "user", "content": f"Recent conversation:\n{convo}\n\nLatest question: {question}"},
+        ],
+    )
+    reply = (response.choices[0].message.content or "").strip().upper()
+    # Only an explicit FOLLOWUP injects prior context. NEW / empty / anything
+    # unexpected -> treat as NEW (the deliberate ambiguity bias).
+    return reply.startswith("FOLLOWUP")

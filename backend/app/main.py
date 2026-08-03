@@ -32,7 +32,7 @@ from .metrics import record_turn
 from .models import MAX_HISTORY_TURNS, LanguagesResponse, WisdomRequest, WisdomResponse
 from .safety import crisis_response, is_crisis
 from .services.embeddings import embed_question
-from .services.llm import generate_answer, reformulate_query
+from .services.llm import generate_answer, is_followup, reformulate_query
 from .services.pinecone_client import query_index
 
 logger = logging.getLogger("askthymonk")
@@ -76,10 +76,10 @@ class UTF8JSONResponse(JSONResponse):
 
 app = FastAPI(
     title="Ask Thy Monk API",
-    # 1.1.0: adds per-request diagnostics logging + Pinecone client-init validation
-    # (observability only; no retrieval/grounding behavior change). Also serves as
-    # a deploy-verification marker via /openapi.json.
-    version="1.1.0",
+    # 1.2.0: two-stage follow-up handling — classify follow-up vs new question,
+    # and only reformulate genuine follow-ups so a topic switch stays
+    # uncontaminated. Surfaced on /health as a deploy-verification marker.
+    version="1.2.0",
     default_response_class=UTF8JSONResponse,
 )
 app.state.limiter = limiter
@@ -104,7 +104,7 @@ app.add_middleware(
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    return {"status": "ok", "version": app.version}
 
 
 @app.get("/api/languages", response_model=LanguagesResponse)
@@ -155,22 +155,29 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
     # was built with, or the query fails with a dimension mismatch.
     target = retrieval_target(language)
 
-    # Follow-up handling: on turn 2+, rewrite the (possibly vague) question into a
-    # standalone query so a follow-up like "what does that mean?" retrieves on its
-    # actual topic. First messages skip this entirely — no extra cost or change.
-    # Only the RETRIEVAL query changes; answer generation still gets the original
-    # question + history below. Degrade gracefully to the original on failure.
+    # Follow-up handling (turn 2+ only), in TWO stages:
+    #   1) classify whether this turn is a genuine follow-up (continues the prior
+    #      topic) or a NEW question (subject change);
+    #   2) ONLY if it's a follow-up, rewrite it into a standalone query so e.g.
+    #      "what does that mean?" retrieves on its actual topic.
+    # A new/unrelated question — and any uncertainty — is used verbatim, so a topic
+    # switch never gets the prior topic grafted on. First messages skip this
+    # entirely. Only the RETRIEVAL query changes; answer generation still gets the
+    # original question + history below. Degrade to the original on any failure.
     retrieval_query = question
-    # "skipped" must be the value on a first-turn / no-history request — i.e.
-    # reformulation is completely inert unless there is prior history. The log
-    # line below makes that verifiable per request rather than assumed.
+    # "skipped" = first turn / no history (inert); "new_question" = classified as a
+    # subject change (used as-is); "changed"/"unchanged" = follow-up rewritten;
+    # "failed" = the extra calls errored. Logged below, not assumed.
     reformulation = "skipped"
     if history:
         try:
-            retrieval_query = reformulate_query(question, history)
-            reformulation = "changed" if retrieval_query != question else "unchanged"
-        except Exception:  # noqa: BLE001 — never let the extra call break the request
-            logger.warning("Query reformulation failed; retrieving on the original question.")
+            if is_followup(question, history):
+                retrieval_query = reformulate_query(question, history)
+                reformulation = "changed" if retrieval_query != question else "unchanged"
+            else:
+                reformulation = "new_question"
+        except Exception:  # noqa: BLE001 — never let the extra calls break the request
+            logger.warning("Follow-up classification/reformulation failed; using the original question.")
             retrieval_query = question
             reformulation = "failed"
 
