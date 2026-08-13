@@ -56,3 +56,12 @@ services:
         sync: false
       - key: RATE_LIMIT
         sync: false
+      # --- Guardrail (Layer 1 name-suppression blocklist) ---
+      # Declared here so a Blueprint re-sync KNOWS this variable is required and
+      # never silently drops it. The actual pipe-separated blocklist lives ONLY
+      # in the Render dashboard (sync:false, no value here) — the source
+      # blocklist.txt is gitignored and never committed. If this var is missing,
+      # Layer 1 goes silently inert (startup log shows terms=0); with it set the
+      # log shows terms=N (N>0).
+      - key: BLOCKLIST_TERMS
+        sync: false

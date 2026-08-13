@@ -119,9 +119,12 @@ Layer 2 protects answers. `blocklist_size()` is logged at import as a deploy
 check.
 
 **Deploy note:** because the file is gitignored it is NOT present on Render. The
-live backend must get the blocklist via the `BLOCKLIST_TERMS` env var (or a
-Render Secret File mounted at the `BLOCKLIST_FILE` path). Confirm the startup log
-shows a non-zero term count after deploy.
+live backend gets the blocklist via the `BLOCKLIST_TERMS` env var (or a Render
+Secret File mounted at the `BLOCKLIST_FILE` path). `BLOCKLIST_TERMS` is declared
+in `render.yaml` as `sync: false` (no value in the repo — value lives only in the
+Render dashboard) so a Blueprint re-sync can't silently drop it and leave Layer 1
+inert. Confirm the startup log shows a non-zero term count (`terms=N`, N>0) after
+any deploy.
 
 ## Known residual false positives (accepted, zero-risk-appetite tradeoff)
 
