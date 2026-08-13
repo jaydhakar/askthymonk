@@ -18,6 +18,8 @@ CRISIS_QUESTION = "मैं अपनी ज़िंदगी खत्म क
 def _stub_retrieval(monkeypatch):
     """Bypass real embedding/Pinecone so the decline-handling tests stay offline."""
     monkeypatch.setattr(main.settings, "api_shared_secret", "")
+    # The pre-generation class-judgment gate would otherwise make a real LLM call.
+    monkeypatch.setattr(main, "is_class_judgment", lambda q: False)
     monkeypatch.setattr(main, "embed_question", lambda text, model: [0.0, 0.1])
     monkeypatch.setattr(
         main,
@@ -90,6 +92,7 @@ def test_followup_is_reformulated_for_retrieval(monkeypatch) -> None:
     monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "source": "Osho", "text": "t"}])
     monkeypatch.setattr(main, "is_followup", lambda q, h: True)
     monkeypatch.setattr(main, "reformulate_query", lambda q, h: "STANDALONE REWRITE")
+    monkeypatch.setattr(main, "is_class_judgment", lambda q: False)
     monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "an answer")
 
     res = client.post(
@@ -122,6 +125,7 @@ def test_new_question_with_history_is_not_reformulated(monkeypatch) -> None:
     monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "source": "Osho", "text": "t"}])
     monkeypatch.setattr(main, "is_followup", lambda q, h: False)
     monkeypatch.setattr(main, "reformulate_query", spy_reformulate)
+    monkeypatch.setattr(main, "is_class_judgment", lambda q: False)
     monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "an answer")
 
     res = client.post(
@@ -152,6 +156,7 @@ def test_no_reformulation_on_first_message(monkeypatch) -> None:
     monkeypatch.setattr(main, "embed_question", fake_embed)
     monkeypatch.setattr(main, "query_index", lambda *a, **k: [{"score": 0.5, "book": "B", "text": "t"}])
     monkeypatch.setattr(main, "reformulate_query", spy_reformulate)
+    monkeypatch.setattr(main, "is_class_judgment", lambda q: False)
     monkeypatch.setattr(main, "generate_answer", lambda *a, **k: "an answer")
 
     res = client.post("/api/wisdom", json={"question": "what is meditation?", "language": "en"})

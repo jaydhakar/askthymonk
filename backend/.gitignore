@@ -1,6 +1,11 @@
 # Secrets
 .env
 
+# Name/content guardrail blocklist — real terms are NEVER committed. Only the
+# committed .example file (structure/placeholders) lives in the repo.
+blocklist.txt
+blocklist.local.txt
+
 # Python
 __pycache__/
 *.py[cod]

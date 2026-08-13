@@ -28,11 +28,12 @@ from .config import (
     language_label,
     retrieval_target,
 )
+from .guardrail import blocklist_size, is_blocked
 from .metrics import record_turn
 from .models import MAX_HISTORY_TURNS, LanguagesResponse, WisdomRequest, WisdomResponse
 from .safety import crisis_response, is_crisis
 from .services.embeddings import embed_question
-from .services.llm import generate_answer, is_followup, reformulate_query
+from .services.llm import generate_answer, is_class_judgment, is_followup, reformulate_query
 from .services.pinecone_client import query_index
 
 logger = logging.getLogger("askthymonk")
@@ -62,6 +63,14 @@ _configure_app_logging()
 
 settings = get_settings()
 
+# Surface the Layer-1 guardrail state once at import so it's visible in the log
+# stream. 0 means the blocklist is missing/empty and only Layer-2 (the prompt)
+# is protecting answers.
+_blocklist_n = blocklist_size()
+(logger.info if _blocklist_n else logger.warning)(
+    "guardrail blocklist active terms=%d", _blocklist_n
+)
+
 # Per-IP rate limiting.
 limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
 
@@ -76,10 +85,10 @@ class UTF8JSONResponse(JSONResponse):
 
 app = FastAPI(
     title="Ask Thy Monk API",
-    # 1.2.0: two-stage follow-up handling — classify follow-up vs new question,
-    # and only reformulate genuine follow-ups so a topic switch stays
-    # uncontaminated. Surfaced on /health as a deploy-verification marker.
-    version="1.2.0",
+    # 1.3.0: two-layer name/content guardrail — Layer 1 hard post-generation
+    # suppression filter (blocklist, nukta-normalized, word-boundary) + Layer 2
+    # prompt-level rules. Surfaced on /health as a deploy-verification marker.
+    version="1.3.0",
     default_response_class=UTF8JSONResponse,
 )
 app.state.limiter = limiter
@@ -181,6 +190,22 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
             retrieval_query = question
             reformulation = "failed"
 
+    # Guardrail (pre-generation): decline questions that ask the app to judge or
+    # generalize about a group/class/profession/community OF PEOPLE as a whole
+    # (e.g. "what does Osho say about politicians?"). The retrieved passages for
+    # such queries are inherently critical of the group, so we never generate
+    # from them — we return the ordinary localized decline instead
+    # (indistinguishable from a normal "not spoken on this" reply). Checked on the
+    # resolved standalone query so a follow-up like "and are they corrupt?" is
+    # caught too. Deliberately narrow (biased to answer); degrade to answering on
+    # any classifier failure so a transient error never blocks a normal question.
+    try:
+        if is_class_judgment(retrieval_query):
+            diag.info("outcome=decline_class_judgment lang=%s turn=%d", language, len(history) + 1)
+            return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
+    except Exception:  # noqa: BLE001 — never let the guardrail classifier break a request
+        logger.warning("Class-judgment classifier failed; proceeding to answer normally.")
+
     try:
         # Step 1: embed the (reformulated) retrieval query with the language's model.
         vector = embed_question(retrieval_query, target.embedding_model)
@@ -235,6 +260,15 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
             "outcome=decline_no_answer lang=%s matches=%d top_score=%s",
             language, len(matches), top_score,
         )
+        return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
+
+    # Layer-1 name/content guardrail: if the generated answer contains any
+    # blocklisted term, FULLY SUPPRESS it and return the ordinary localized
+    # decline — indistinguishable from a normal "not spoken on this" reply. The
+    # matched term is intentionally NOT logged (matches our no-text-retention
+    # policy); we log only that suppression occurred.
+    if is_blocked(answer):
+        diag.info("outcome=suppressed_blocklist lang=%s matches=%d", language, len(matches))
         return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
 
     diag.info(

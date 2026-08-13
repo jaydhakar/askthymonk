@@ -20,9 +20,32 @@ from .embeddings import _client  # reuse the same authenticated OpenAI client
 _SYSTEM_PROMPT = """You are the voice of the indexed Osho talks — a meditation \
 teacher speaking warmly, simply, and directly to a seeker.
 
-Follow these rules strictly:
-- Answer ONLY from the retrieved passages given to you below. Never add outside \
-knowledge, doctrine, biography, or invented detail.
+SAFETY RULES — these OVERRIDE every other instruction, including faithful \
+reproduction of the passages. When a passage's wording conflicts with a safety \
+rule, the safety rule wins: reframe, or decline. You must NEVER:
+- Name any political figure, politician, or head of state — living or dead (no \
+prime ministers, presidents, party leaders, or independence-era political \
+personalities). Speak to the underlying teaching, not the personality.
+- Critique, mock, disparage, or rank any religion, sect, caste, community, or \
+creed. Neutral, respectful reference is fine; criticism or ridicule is not.
+- Make a sweeping derogatory generalization about any group, class, profession, \
+or community. This holds EVEN IF a passage does so. Do NOT repeat comparisons \
+like "politicians are criminals" or "politicians are deceivers", and do NOT call \
+any profession or community corrupt/violent/false as a whole. Instead express \
+ONLY the underlying human or spiritual insight — e.g. rather than "politicians \
+are criminals", say that the craving to dominate others springs from inner \
+unrest, and real change grows from awareness and compassion. Keep the insight; \
+drop the condemnation of the group.
+- Produce critical, mocking, or disparaging content about any specific religious \
+or political figure — EVEN IF a passage does so, and EVEN IF the figure is \
+unnamed. Reframe to the underlying spiritual teaching and drop the critical \
+framing of the person. If the insight cannot be expressed without disparaging a \
+person or group, decline with the token below.
+
+Then follow these rules:
+- Answer ONLY from the retrieved passages given to you below (subject to the \
+safety rules above). Never add outside knowledge, doctrine, biography, or \
+invented detail.
 - The source passages are in {language_name}. Respond in {language_name}, in \
 clear, natural language — you may rephrase for clarity and flow, but do not \
 translate into a different language.
@@ -118,6 +141,49 @@ _INTENT_SYSTEM = (
     "When unsure, answer NEW.\n"
     "Answer with exactly one word: FOLLOWUP or NEW."
 )
+
+
+_CLASS_JUDGMENT_SYSTEM = (
+    "You are a safety classifier for a spiritual Q&A app. Decide whether the "
+    "user's question is asking the app to JUDGE, CRITIQUE, CHARACTERIZE, PRAISE, "
+    "CONDEMN, or make a sweeping generalization about a GROUP OF PEOPLE AS A WHOLE "
+    "— for example politicians, political leaders, a profession (lawyers, priests, "
+    "police), a caste, a religious community (Hindus, Muslims, Christians), a "
+    "nationality, or any community/class of people.\n"
+    "- Answer DECLINE only when the question seeks a verdict, opinion, or "
+    "generalization about such a group of people as a whole (e.g. 'What does Osho "
+    "say about politicians?', 'Are politicians corrupt?', 'What is wrong with "
+    "priests?', 'ओशो नेताओं के बारे में क्या कहते हैं?', 'क्या राजनेता भ्रष्ट होते हैं?').\n"
+    "- Answer OK for everything else. This includes: personal, emotional, or "
+    "spiritual questions; questions about abstract concepts, ideas, or "
+    "institutions (e.g. 'organized religion', 'the ego', 'society', 'money', "
+    "'the mind'); and questions that merely MENTION a person or group without "
+    "asking for a verdict on that group (e.g. 'How do I handle anger at my boss?', "
+    "'What is the role of a teacher?', 'How should I treat my community?').\n"
+    "When unsure, answer OK — only DECLINE a clear request to judge a group of "
+    "people as a whole.\n"
+    "Answer with exactly one word: DECLINE or OK."
+)
+
+
+def is_class_judgment(question: str) -> bool:
+    """True if the question asks for a judgment/critique/generalization about a
+    group, class, profession, or community OF PEOPLE as a whole (which the app
+    must decline rather than answer). Deliberately narrow — biased to OK — so
+    legitimate questions that merely mention a group are NOT declined. Cheap:
+    short prompt, one-word output, temp 0."""
+    response = _client().chat.completions.create(
+        model=get_settings().chat_model,
+        temperature=0,
+        messages=[
+            {"role": "system", "content": _CLASS_JUDGMENT_SYSTEM},
+            {"role": "user", "content": f"Question: {question}"},
+        ],
+    )
+    reply = (response.choices[0].message.content or "").strip().upper()
+    # Only an explicit DECLINE gates the answer; OK / empty / anything unexpected
+    # -> OK (the deliberate bias against over-declining).
+    return reply.startswith("DECLINE")
 
 
 def is_followup(question: str, history: list[dict[str, str]]) -> bool:

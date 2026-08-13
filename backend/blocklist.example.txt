@@ -1,0 +1,38 @@
+# ---------------------------------------------------------------------------
+# Name/content guardrail — Layer 1 blocklist (STRUCTURE / EXAMPLE ONLY)
+# ---------------------------------------------------------------------------
+# Copy this file to `blocklist.txt` (gitignored) and populate the REAL terms
+# there. This .example file is committed and must contain NO real names.
+#
+# On Render (or any host), instead of a file you may set the env var
+# BLOCKLIST_TERMS to the terms separated by '|' or newlines — it takes
+# precedence over the file when non-empty.
+#
+# FORMAT
+#   - One term or phrase per line.
+#   - Lines are trimmed; blank lines are ignored.
+#   - '#' starts a comment (whole-line or inline) and is ignored to end of line.
+#   - Put both Latin and Devanagari spellings on their own lines.
+#   - Multi-word phrases are matched as a whole phrase, e.g. "Some Full Name"
+#     will NOT fire on either word alone.
+#
+# MATCHING (applied automatically — you do not need to pre-process terms)
+#   - case-insensitive
+#   - word-boundary (never a raw substring match)
+#   - NUKTA-normalized: the nukta (़) is stripped from both the term and the
+#     answer text, so you only need ONE spelling — e.g. listing खुमैनी also
+#     catches ख़ुमैनी, and vice versa.
+#
+# CAUTION
+#   - Prefer full phrases over bare common words to avoid over-suppression.
+#   - A bare surname or a common word will suppress every answer that happens to
+#     use it — include those only deliberately.
+# ---------------------------------------------------------------------------
+
+# --- Example single names (Latin + Devanagari on separate lines) ---
+Placeholder Name One
+प्लेसहोल्डर नाम एक
+
+# --- Example multi-word phrase (matched only as the whole phrase) ---
+Placeholder Full Phrase
+प्लेसहोल्डर पूरा वाक्यांश
