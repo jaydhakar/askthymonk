@@ -8,6 +8,7 @@ A RAG chat interface over a Pinecone index of ~90 Hindi Osho books. Endpoints:
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
 import sys
@@ -72,7 +73,43 @@ _blocklist_n = blocklist_size()
 )
 
 # Per-IP rate limiting.
-limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit])
+#
+# THE CONTRACT: the website's Cloudflare proxy MUST send the real visitor IP in
+# the header below. On the live path (browser -> Cloudflare -> Render) the direct
+# socket IP is a single shared infrastructure address, so keying on it collapses
+# the limit into one global bucket. We instead key on the forwarded real IP.
+#
+# ⚠️ HEADER NAME THE WEBSITE PROXY MUST SEND: "X-Real-Client-IP"  (single IP)
+CLIENT_IP_HEADER = "X-Real-Client-IP"
+
+
+def _client_ip_key(request: Request) -> str:
+    """Rate-limit bucket key = the real client IP.
+
+    Prefer the IP our trusted Cloudflare proxy forwards in CLIENT_IP_HEADER; fall
+    back to the direct socket IP (get_remote_address) when that header is absent
+    or malformed — so a missing header degrades to per-socket-IP limiting, NEVER
+    to a single shared bucket, and never errors.
+
+    Security note: onrender.com is publicly reachable, so this header CAN be
+    spoofed by a direct caller. That is acceptable here: keyless requests are
+    rejected (401) before any OpenAI cost, so the residual risk is only cheap
+    401-flooding, not cost abuse. The shared-secret gate is unchanged.
+    """
+    forwarded = request.headers.get(CLIENT_IP_HEADER, "")
+    if forwarded:
+        # Accept a bare IP, or the first entry of a comma list, and validate it
+        # (v4 or v6). Anything malformed falls through to the socket IP.
+        candidate = forwarded.split(",")[0].strip()
+        try:
+            ipaddress.ip_address(candidate)
+            return candidate
+        except ValueError:
+            pass
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=_client_ip_key, default_limits=[settings.rate_limit])
 
 
 class UTF8JSONResponse(JSONResponse):
@@ -85,10 +122,11 @@ class UTF8JSONResponse(JSONResponse):
 
 app = FastAPI(
     title="Ask Thy Monk API",
-    # 1.3.0: two-layer name/content guardrail — Layer 1 hard post-generation
-    # suppression filter (blocklist, nukta-normalized, word-boundary) + Layer 2
-    # prompt-level rules. Surfaced on /health as a deploy-verification marker.
-    version="1.3.0",
+    # 1.3.1: rate limiter now keys on the real client IP forwarded by the website
+    # proxy (X-Real-Client-IP), falling back to the socket IP — fixes the global-
+    # bucket bug on the Cloudflare->Render path. (1.3.0: name/content guardrail.)
+    # Surfaced on /health as a deploy-verification marker.
+    version="1.3.1",
     default_response_class=UTF8JSONResponse,
 )
 app.state.limiter = limiter

@@ -141,6 +141,32 @@ bare Gandhi block already covers "Indira Gandhi" regardless.
 These are intentional: over-suppression (a harmless decline) is preferred to any
 risk of naming. Revisit only if false declines become noticeable in use.
 
+## Rate limiting (per real client IP)
+
+`/api/wisdom` is rate-limited at `RATE_LIMIT` (default `20/minute`). The bucket
+key is the **real client IP**, derived by `main._client_ip_key`:
+
+- On the live path (browser → Cloudflare → Render) the direct socket IP is a
+  single shared infrastructure address, so keying on `get_remote_address` alone
+  collapses the limit into one global bucket (an availability bug: everyone gets
+  429 once total traffic exceeds the limit). To avoid that, the website's
+  Cloudflare proxy forwards the real visitor IP and the limiter keys on it.
+- **Contract — the header the proxy MUST send: `X-Real-Client-IP`** (a single IP;
+  the proxy sets it from Cloudflare's `cf-connecting-ip`). Defined by
+  `main.CLIENT_IP_HEADER`.
+- Fallback: if that header is absent or malformed, the key degrades to the direct
+  socket IP (`get_remote_address`) — never a shared constant, never an error.
+- Spoofing: onrender.com is publicly reachable, so a direct caller can spoof this
+  header. Acceptable — keyless requests 401 before any OpenAI cost, so the
+  residual risk is only cheap 401-flooding, not cost abuse. The shared-secret
+  gate is independent and unchanged.
+- **Two-repo fix:** the backend defines this contract; the website proxy
+  (`ask-thy-monk-web/src/pages/api/ask.ts`) must be updated to send the header.
+  Until both halves are deployed, the header simply isn't sent and the limiter
+  falls back to socket IP (i.e. the pre-fix global-bucket behavior) — so deploy
+  the two halves together. End-to-end "two clients, independent buckets" is only
+  verifiable after the website half ships.
+
 ## Versioning
 
 `app.version` (surfaced on `/health`) doubles as a deploy-verification marker;
