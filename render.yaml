@@ -49,6 +49,11 @@ services:
         sync: false
       - key: TOP_K_EN
         sync: false
+      # English-only retrieval-relevance floor on the top match score (default
+      # 0.45 in code). Declared so it can be tuned from the dashboard without a
+      # code change; leave unset to use the code default. Hindi has no floor.
+      - key: EN_SCORE_FLOOR
+        sync: false
       # --- App behavior ---
       - key: SUPPORTED_LANGUAGES
         sync: false

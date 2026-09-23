@@ -167,6 +167,32 @@ key is the **real client IP**, derived by `main._client_ip_key`:
   the two halves together. End-to-end "two clients, independent buckets" is only
   verifiable after the website half ships.
 
+## Retrieval-relevance floor (English only)
+
+Pinecone always returns the `top_k` nearest vectors regardless of how far, so an
+off-topic question still gets chunks and — because the LLM's own `NO_ANSWER` gate
+is unreliable in English (calibration: it grounded off-topic questions at top
+scores as low as ~0.20, and failed to decline 13/13 leak cases) — the model would
+confabulate an answer with a citation. To close that, `/api/wisdom` applies a
+**top-match score floor before generation**, on the English path only.
+
+- `RetrievalTarget.score_floor`: English = `EN_SCORE_FLOOR` (default `0.45`);
+  Hindi = `0.0` (a structural no-op — Hindi is untouched by this branch).
+- If `top_score < score_floor`, the request is declined *before* `generate_answer`
+  — same localized decline, `book`/`source` nulled (`outcome=floor_declined`) —
+  which also skips a wasted LLM call.
+- **Why 0.45, English only:** calibration on `askthymonk-en-large` found a clean
+  gap — legit questions scored ≥0.532, all noise/adjacent-leak questions ≤0.385;
+  0.45 sits in the dead zone. The Hindi index (`osho-ai`) showed **no usable gap**
+  (legit as low as 0.438 overlapping leaks up to 0.479, a noise case at 0.571), so
+  a score floor there would either leak or reject real questions — Hindi is
+  explicitly out of scope and keeps relying on the LLM `NO_ANSWER` gate.
+- Tunable via `EN_SCORE_FLOOR` (`render.yaml`, `sync: false`) without a code
+  change. The English `grounded` and `floor_declined` diag lines both log
+  `top_score`, so real near-floor cases (0.45–0.52) can be reviewed after deploy —
+  the calibration "ground" set was canonical/clean-phrased, so real user phrasing
+  may sit lower and the floor may need tuning.
+
 ## Versioning
 
 `app.version` (surfaced on `/health`) doubles as a deploy-verification marker;

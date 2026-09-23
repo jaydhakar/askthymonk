@@ -122,11 +122,11 @@ class UTF8JSONResponse(JSONResponse):
 
 app = FastAPI(
     title="Ask Thy Monk API",
-    # 1.3.1: rate limiter now keys on the real client IP forwarded by the website
-    # proxy (X-Real-Client-IP), falling back to the socket IP — fixes the global-
-    # bucket bug on the Cloudflare->Render path. (1.3.0: name/content guardrail.)
-    # Surfaced on /health as a deploy-verification marker.
-    version="1.3.1",
+    # 1.3.2: English-only retrieval-relevance floor (EN_SCORE_FLOOR, default 0.45)
+    # applied before generation — declines off-topic questions the LLM's NO_ANSWER
+    # gate would otherwise confabulate on. Hindi unchanged. (1.3.1: real-client-IP
+    # rate limiting. 1.3.0: name/content guardrail.) /health deploy marker.
+    version="1.3.2",
     default_response_class=UTF8JSONResponse,
 )
 app.state.limiter = limiter
@@ -279,6 +279,23 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
         diag.info("outcome=decline_no_matches lang=%s top_k=%d", language, target.top_k)
         return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
 
+    top = matches[0]
+    top_score = round(top["score"], 4) if top.get("score") is not None else None
+
+    # Retrieval-relevance floor (English only; target.score_floor is 0.0 for Hindi,
+    # making this a no-op there). Applied BEFORE generation: calibration showed the
+    # LLM's own NO_ANSWER gate is unreliable in English (it grounded off-topic
+    # questions at scores as low as ~0.20), while the top retrieval score cleanly
+    # separates legit (>=0.532) from noise/adjacent-leak (<=0.385). Below the floor
+    # we decline directly — identical localized decline, book/source nulled — which
+    # also skips a wasted LLM call. Hindi (floor 0.0) is untouched by this branch.
+    if target.score_floor and (top_score is None or top_score < target.score_floor):
+        diag.info(
+            "outcome=floor_declined lang=%s top_score=%s floor=%s",
+            language, top_score, target.score_floor,
+        )
+        return WisdomResponse(answer=fallback_message(language), book=None, source=None, language=language)
+
     try:
         # Step 4: ground an answer in the retrieved passages (with prior turns
         # as conversational context; retrieval above still used only `question`).
@@ -286,9 +303,6 @@ def wisdom(payload: WisdomRequest, request: Request) -> WisdomResponse:
     except Exception as exc:  # noqa: BLE001
         logger.exception("Upstream LLM failure")
         raise HTTPException(status_code=502, detail="Upstream service error during generation.") from exc
-
-    top = matches[0]
-    top_score = round(top["score"], 4) if top.get("score") is not None else None
 
     # A sentinel answer means the model declined: return the localized decline
     # message and never cite a book (the sentinel is language-independent, so

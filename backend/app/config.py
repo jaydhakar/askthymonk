@@ -91,6 +91,12 @@ class Settings:
         # diluted for the model to ground on; 6 reliably gives enough signal.
         self.top_k = int(os.getenv("TOP_K", "3"))
         self.top_k_en = int(os.getenv("TOP_K_EN", "6"))
+        # English-only retrieval-relevance floor on the TOP match score. Below it,
+        # the request is declined before generation (the LLM's own NO_ANSWER gate
+        # is unreliable in English — calibration showed a clean gap: legit ≥0.532,
+        # noise/adjacent leaks ≤0.385). Hindi has no usable gap and gets no floor
+        # (0.0). Configurable so it can be tuned without a code change.
+        self.en_score_floor = float(os.getenv("EN_SCORE_FLOOR", "0.45"))
         # Optional shared secret. When set, /api/wisdom requires a matching
         # X-API-Key header. Empty (default) disables the check for local dev.
         self.api_shared_secret = os.getenv("API_SHARED_SECRET", "")
@@ -121,6 +127,10 @@ class RetrievalTarget:
     pinecone_api_key: str
     pinecone_index: str
     top_k: int
+    # Minimum acceptable TOP-match similarity score; below it the request is
+    # declined before generation. 0.0 means "no floor" (Hindi) — the check is a
+    # no-op. English carries the configured EN_SCORE_FLOOR.
+    score_floor: float = 0.0
 
 
 def retrieval_target(language: str) -> RetrievalTarget:
@@ -134,6 +144,7 @@ def retrieval_target(language: str) -> RetrievalTarget:
             pinecone_api_key=settings.pinecone_api_key_en,
             pinecone_index=settings.pinecone_index_en,
             top_k=settings.top_k_en,
+            score_floor=settings.en_score_floor,
         )
     return RetrievalTarget(
         language=DEFAULT_LANGUAGE,
@@ -141,6 +152,7 @@ def retrieval_target(language: str) -> RetrievalTarget:
         pinecone_api_key=settings.pinecone_api_key,
         pinecone_index=settings.pinecone_index,
         top_k=settings.top_k,
+        score_floor=0.0,  # Hindi: no usable score gap — no floor (see calibration).
     )
 
 
